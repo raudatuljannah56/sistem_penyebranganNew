@@ -909,7 +909,7 @@
                                     colspan="5"
                                     class="petugas-empty"
                                 >
-                                    Tidak ada data penjualan.
+                                    Tidak ada data transaksi.
                                 </td>
 
                             </tr>

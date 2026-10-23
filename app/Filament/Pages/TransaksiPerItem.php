@@ -2,12 +2,11 @@
 
 namespace App\Filament\Pages;
 
-use App\Models\Dermaga;
 use App\Models\NomorDokumenLaporan;
+use App\Models\Tarif;
 use App\Models\Transaksi;
 use Carbon\Carbon;
 use Filament\Pages\Page;
-use Illuminate\Database\Eloquent\Builder;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -16,23 +15,21 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use UnitEnum;
 
-class PenjualanGabungan extends Page
+class TransaksiPerItem extends Page
 {
-    protected static ?string $title = 'Laporan Gabungan';
+    protected static ?string $title = 'Transaksi by Menu';
 
-    protected static ?string $navigationLabel = 'Penjualan Gabungan';
+    protected static ?string $navigationLabel = 'Transaksi by Item';
 
     protected static string|UnitEnum|null $navigationGroup = 'Laporan';
 
     protected static ?int $navigationSort = 4;
 
-    protected string $view = 'filament.pages.penjualan-gabungan';
+    protected string $view = 'filament.pages.transaksi-per-item';
 
     public string $tanggalAwal = '';
 
     public string $tanggalAkhir = '';
-
-    public string $lokasi = '';
 
     public function mount(): void
     {
@@ -44,106 +41,82 @@ class PenjualanGabungan extends Page
 
     public function tampilkanData(): void
     {
-        // Data akan mengikuti filter yang dipilih.
-    }
-
-    public function getLokasiOptionsProperty()
-    {
-        return Dermaga::query()
-            ->orderBy('id_dermaga')
-            ->get([
-                'id_dermaga',
-                'nama_dermaga',
-            ]);
+        // Filter langsung membaca nilai tanggal terbaru.
     }
 
     public function getLaporanProperty()
     {
-        $query = Dermaga::query()
-            ->orderBy('id_dermaga');
-
-        if ($this->lokasi !== '') {
-            $query->where(
-                'id_dermaga',
-                $this->lokasi
-            );
-        }
-
-        return $query
+        return Tarif::query()
+            /*
+            |--------------------------------------------------------------------------
+            | Hanya tampilkan tarif yang masih aktif
+            |--------------------------------------------------------------------------
+            */
+            ->where('status', 'aktif')
+            /*
+            |--------------------------------------------------------------------------
+            | Urutkan berdasarkan nama tarif secara alfabetis
+            |--------------------------------------------------------------------------
+            */
+            ->orderBy('nama_tarif', 'asc')
             ->get()
-            ->map(function (Dermaga $dermaga) {
-
-                $totalPendapatan = (float) Transaksi::query()
+            ->map(function (Tarif $tarif) {
+                $query = Transaksi::query()
+                    ->where(
+                        'id_tarif',
+                        $tarif->id_tarif
+                    )
                     ->where(
                         'status',
                         'berhasil'
-                    )
-                    ->when(
-                        $this->tanggalAwal,
-                        fn (Builder $query): Builder =>
-                            $query->whereDate(
-                                'tanggal_transaksi',
-                                '>=',
-                                $this->tanggalAwal
-                            )
-                    )
-                    ->when(
-                        $this->tanggalAkhir,
-                        fn (Builder $query): Builder =>
-                            $query->whereDate(
-                                'tanggal_transaksi',
-                                '<=',
-                                $this->tanggalAkhir
-                            )
-                    )
-                    ->whereHas(
-                        'shift.loket',
-                        fn (Builder $query): Builder =>
-                            $query->where(
-                                'id_dermaga',
-                                $dermaga->id_dermaga
-                            )
-                    )
-                    ->sum('total');
+                    );
+
+                if ($this->tanggalAwal) {
+                    $query->whereDate(
+                        'tanggal_transaksi',
+                        '>=',
+                        $this->tanggalAwal
+                    );
+                }
+
+                if ($this->tanggalAkhir) {
+                    $query->whereDate(
+                        'tanggal_transaksi',
+                        '<=',
+                        $this->tanggalAkhir
+                    );
+                }
 
                 return [
-                    'id_dermaga' => $dermaga->id_dermaga,
-                    'nama_dermaga' => $dermaga->nama_dermaga,
-                    'total_pendapatan' => $totalPendapatan,
-                    'total_discount' => 0,
-                    'total' => $totalPendapatan,
+                    'id_tarif' => $tarif->id_tarif,
+                    'nama_tarif' => $tarif->nama_tarif,
+                    'kategori' => $tarif->kategori,
+                    'harga' => (float) $tarif->harga,
+                    'qty' => (int) $query->sum('jumlah'),
+                    'total' => (float) $query->sum('total'),
                 ];
             });
     }
 
-    public function getTotalPendapatanKeseluruhanProperty(): float
+    public function getTotalQtyProperty(): int
     {
-        return (float) $this->laporan->sum(
-            'total_pendapatan'
-        );
-    }
-
-    public function getTotalDiscountKeseluruhanProperty(): float
-    {
-        return 0;
+        return (int) $this->laporan->sum('qty');
     }
 
     public function getTotalKeseluruhanProperty(): float
     {
-        return (float) $this->laporan->sum(
-            'total'
-        );
+        return (float) $this->laporan->sum('total');
     }
 
     public function exportExcel(): StreamedResponse
     {
         /*
         |--------------------------------------------------------------------------
-        | Ambil data laporan
+        | Ambil data laporan sesuai periode
         |--------------------------------------------------------------------------
         */
 
-        $data = $this->laporan;
+        $laporan = $this->laporan;
 
         /*
         |--------------------------------------------------------------------------
@@ -156,7 +129,7 @@ class PenjualanGabungan extends Page
         $sheet = $spreadsheet->getActiveSheet();
 
         $sheet->setTitle(
-            'Penjualan Gabungan'
+            'Transaksi by Menu'
         );
 
         /*
@@ -179,19 +152,19 @@ class PenjualanGabungan extends Page
 
         $sheet
             ->getColumnDimension('B')
-            ->setWidth(36);
+            ->setWidth(32);
 
         $sheet
             ->getColumnDimension('C')
-            ->setWidth(22);
+            ->setWidth(15);
 
         $sheet
             ->getColumnDimension('D')
-            ->setWidth(20);
+            ->setWidth(10);
 
         $sheet
             ->getColumnDimension('E')
-            ->setWidth(18);
+            ->setWidth(16);
 
         /*
         |--------------------------------------------------------------------------
@@ -207,7 +180,7 @@ class PenjualanGabungan extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | JUDUL UTAMA
+        | JUDUL
         |--------------------------------------------------------------------------
         */
 
@@ -217,7 +190,7 @@ class PenjualanGabungan extends Page
 
         $sheet->setCellValue(
             'A1',
-            'Laporan Pendapatan Gabungan'
+            'Laporan Transaksi by Menu'
         );
 
         $sheet
@@ -270,13 +243,12 @@ class PenjualanGabungan extends Page
 
         $sheet->setCellValue(
             'A4',
-            'Penjualan Gabungan'
+            'Transaksi by Menu'
         );
 
         $sheet
             ->getStyle('A4')
             ->getFont()
-            ->setBold(false)
             ->setSize(11)
             ->getColor()
             ->setARGB(
@@ -299,7 +271,7 @@ class PenjualanGabungan extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | PERIODE
+        | PERIODE TANGGAL
         |--------------------------------------------------------------------------
         */
 
@@ -375,22 +347,22 @@ class PenjualanGabungan extends Page
 
         $sheet->setCellValue(
             "B{$headerRow}",
-            'Nama Lokasi'
+            'Nama Item'
         );
 
         $sheet->setCellValue(
             "C{$headerRow}",
-            'Total Pendapatan'
+            'Harga Item'
         );
 
         $sheet->setCellValue(
             "D{$headerRow}",
-            'Total Discount'
+            'Qty'
         );
 
         $sheet->setCellValue(
             "E{$headerRow}",
-            'Total'
+            'TOTAL'
         );
 
         $headerStyle = $sheet->getStyle(
@@ -505,13 +477,11 @@ class PenjualanGabungan extends Page
 
         $row = 8;
 
-        $totalPendapatan = 0;
-
-        $totalDiscount = 0;
+        $totalQty = 0;
 
         $totalKeseluruhan = 0;
 
-        foreach ($data as $index => $item) {
+        foreach ($laporan as $index => $item) {
 
             /*
             |--------------------------------------------------------------------------
@@ -526,17 +496,17 @@ class PenjualanGabungan extends Page
 
             $sheet->setCellValue(
                 "B{$row}",
-                $item['nama_dermaga']
+                $item['nama_tarif']
             );
 
             $sheet->setCellValue(
                 "C{$row}",
-                (float) $item['total_pendapatan']
+                (float) $item['harga']
             );
 
             $sheet->setCellValue(
                 "D{$row}",
-                (float) $item['total_discount']
+                (int) $item['qty']
             );
 
             $sheet->setCellValue(
@@ -546,7 +516,7 @@ class PenjualanGabungan extends Page
 
             /*
             |--------------------------------------------------------------------------
-            | BORDER DATA
+            | BORDER SETIAP SEL
             |--------------------------------------------------------------------------
             */
 
@@ -636,7 +606,7 @@ class PenjualanGabungan extends Page
                 ->getStyle("D{$row}")
                 ->getAlignment()
                 ->setHorizontal(
-                    Alignment::HORIZONTAL_RIGHT
+                    Alignment::HORIZONTAL_CENTER
                 )
                 ->setVertical(
                     Alignment::VERTICAL_CENTER
@@ -685,15 +655,11 @@ class PenjualanGabungan extends Page
 
             /*
             |--------------------------------------------------------------------------
-            | Hitung total
+            | Total
             |--------------------------------------------------------------------------
             */
 
-            $totalPendapatan +=
-                (float) $item['total_pendapatan'];
-
-            $totalDiscount +=
-                (float) $item['total_discount'];
+            $totalQty += (int) $item['qty'];
 
             $totalKeseluruhan +=
                 (float) $item['total'];
@@ -707,7 +673,7 @@ class PenjualanGabungan extends Page
         |--------------------------------------------------------------------------
         */
 
-        if ($data->isEmpty()) {
+        if ($laporan->isEmpty()) {
 
             $sheet->setCellValue(
                 "A{$row}",
@@ -720,7 +686,7 @@ class PenjualanGabungan extends Page
 
             $sheet->setCellValue(
                 "B{$row}",
-                'Tidak ada data penjualan.'
+                'Tidak ada data transaksi.'
             );
 
             $emptyStyle = $sheet->getStyle(
@@ -791,12 +757,12 @@ class PenjualanGabungan extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | Gabungkan A:B
+        | A sampai C digabung
         |--------------------------------------------------------------------------
         */
 
         $sheet->mergeCells(
-            "A{$totalRow}:B{$totalRow}"
+            "A{$totalRow}:C{$totalRow}"
         );
 
         $sheet->setCellValue(
@@ -805,13 +771,8 @@ class PenjualanGabungan extends Page
         );
 
         $sheet->setCellValue(
-            "C{$totalRow}",
-            $totalPendapatan
-        );
-
-        $sheet->setCellValue(
             "D{$totalRow}",
-            $totalDiscount
+            $totalQty
         );
 
         $sheet->setCellValue(
@@ -921,20 +882,10 @@ class PenjualanGabungan extends Page
             );
 
         $sheet
-            ->getStyle("C{$totalRow}")
-            ->getAlignment()
-            ->setHorizontal(
-                Alignment::HORIZONTAL_RIGHT
-            )
-            ->setVertical(
-                Alignment::VERTICAL_CENTER
-            );
-
-        $sheet
             ->getStyle("D{$totalRow}")
             ->getAlignment()
             ->setHorizontal(
-                Alignment::HORIZONTAL_RIGHT
+                Alignment::HORIZONTAL_CENTER
             )
             ->setVertical(
                 Alignment::VERTICAL_CENTER
@@ -948,19 +899,6 @@ class PenjualanGabungan extends Page
             )
             ->setVertical(
                 Alignment::VERTICAL_CENTER
-            );
-
-        /*
-        |--------------------------------------------------------------------------
-        | FORMAT TOTAL
-        |--------------------------------------------------------------------------
-        */
-
-        $sheet
-            ->getStyle("C{$totalRow}")
-            ->getNumberFormat()
-            ->setFormatCode(
-                '#,##0'
             );
 
         $sheet
@@ -986,7 +924,8 @@ class PenjualanGabungan extends Page
         | NOMOR DOKUMEN OTOMATIS
         |--------------------------------------------------------------------------
         |
-        | Nomor dokumen menggunakan tanggal saat Export ditekan.
+        | Menggunakan tanggal saat tombol Export ditekan,
+        | bukan tanggal periode laporan.
         |--------------------------------------------------------------------------
         */
 
@@ -1071,7 +1010,7 @@ class PenjualanGabungan extends Page
         */
 
         $filename =
-            'Laporan-Penjualan-Gabungan-'
+            'Laporan-Transaksi-by-Menu-'
             . (
                 $this->tanggalAwal !== ''
                     ? Carbon::parse(

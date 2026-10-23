@@ -460,32 +460,16 @@
             text-align: center !important;
         }
 
-
-        /* DISCOUNT NOMINAL */
+        /* TOTAL TRANSAKSI */
         .history-table .fi-ta-table th:nth-child(8),
         .history-table .fi-ta-table td:nth-child(8) {
-            min-width: 135px;
+            min-width: 145px;
             text-align: right !important;
         }
 
         .history-table .fi-ta-table td:nth-child(8) > *,
         .history-table .fi-ta-table td:nth-child(8) .fi-ta-text,
         .history-table .fi-ta-table td:nth-child(8) .fi-ta-col-wrp {
-            justify-content: flex-end !important;
-            text-align: right !important;
-        }
-
-
-        /* TOTAL TRANSAKSI */
-        .history-table .fi-ta-table th:nth-child(9),
-        .history-table .fi-ta-table td:nth-child(9) {
-            min-width: 145px;
-            text-align: right !important;
-        }
-
-        .history-table .fi-ta-table td:nth-child(9) > *,
-        .history-table .fi-ta-table td:nth-child(9) .fi-ta-text,
-        .history-table .fi-ta-table td:nth-child(9) .fi-ta-col-wrp {
             justify-content: flex-end !important;
             text-align: right !important;
         }

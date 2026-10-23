@@ -199,19 +199,15 @@
         }
 
         .gabungan-table thead th:nth-child(2) {
-            width: 33%;
+            width: 43%;
         }
 
         .gabungan-table thead th:nth-child(3) {
-            width: 20%;
+            width: 25%;
         }
 
         .gabungan-table thead th:nth-child(4) {
-            width: 20%;
-        }
-
-        .gabungan-table thead th:nth-child(5) {
-            width: 20%;
+            width: 25%;
         }
 
         /* =========================================================
@@ -524,10 +520,6 @@
                             </th>
 
                             <th>
-                                Total Discount
-                            </th>
-
-                            <th>
                                 Total
                             </th>
 
@@ -569,20 +561,6 @@
                                     Rp
                                     {{
                                         number_format(
-                                            $item['total_discount'],
-                                            0,
-                                            ',',
-                                            '.'
-                                        )
-                                    }}
-
-                                </td>
-
-                                <td class="gabungan-nominal">
-
-                                    Rp
-                                    {{
-                                        number_format(
                                             $item['total'],
                                             0,
                                             ',',
@@ -599,7 +577,7 @@
                             <tr>
 
                                 <td
-                                    colspan="5"
+                                    colspan="4"
                                     class="gabungan-empty"
                                 >
                                     Data tidak tersedia.
@@ -629,20 +607,6 @@
                                 {{
                                     number_format(
                                         $this->totalPendapatanKeseluruhan,
-                                        0,
-                                        ',',
-                                        '.'
-                                    )
-                                }}
-
-                            </td>
-
-                            <td class="gabungan-nominal">
-
-                                Rp
-                                {{
-                                    number_format(
-                                        $this->totalDiscountKeseluruhan,
                                         0,
                                         ',',
                                         '.'

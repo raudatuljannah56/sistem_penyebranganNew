@@ -1140,7 +1140,7 @@
                 {{-- JUDUL --}}
 
                 <div class="detail-report-title">
-                    Laporan Detail Penjualan
+                    Laporan Detail Transaksi
                 </div>
 
 
@@ -1635,7 +1635,7 @@
                                     class="detail-empty"
                                 >
 
-                                    Tidak ada data penjualan.
+                                    Tidak ada data transaksi.
 
                                 </td>
 

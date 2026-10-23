@@ -17,19 +17,19 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use UnitEnum;
 
-class PenjualanPerPetugas extends Page
+class TransaksiPerPetugas extends Page
 {
     use WithPagination;
 
     protected static ?string $title = 'Laporan Per Petugas';
 
-    protected static ?string $navigationLabel = 'Penjualan by Petugas';
+    protected static ?string $navigationLabel = 'Transaksi by Petugas';
 
     protected static string|UnitEnum|null $navigationGroup = 'Laporan';
 
     protected static ?int $navigationSort = 4;
 
-    protected string $view = 'filament.pages.penjualan-per-petugas';
+    protected string $view = 'filament.pages.transaksi-per-petugas';
 
     /*
     |--------------------------------------------------------------------------

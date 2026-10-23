@@ -368,7 +368,7 @@
             <div class="item-report-header">
 
                 <div class="item-report-title">
-                    Laporan Penjualan by Menu
+                    Laporan Transaksi by Menu
                 </div>
 
                 <div class="item-report-info">
@@ -491,7 +491,7 @@
                                     colspan="5"
                                     class="item-empty"
                                 >
-                                    Tidak ada data penjualan.
+                                    Tidak ada data transaksi.
                                 </td>
 
                             </tr>

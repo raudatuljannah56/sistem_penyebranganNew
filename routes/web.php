@@ -15,7 +15,3 @@ Route::post('/login', [AuthController::class, 'login'])
 
 Route::post('/logout', [AuthController::class, 'logout'])
     ->name('logout');
-
-Route::get('/kasir', function () {
-    return view('kasir.dashboard');
-})->middleware(['auth', 'role:kasir'])->name('kasir.dashboard');

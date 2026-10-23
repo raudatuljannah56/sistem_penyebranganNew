@@ -4,6 +4,8 @@ namespace App\Filament\Widgets;
 
 use App\Models\Dermaga;
 use App\Models\User;
+use App\Models\Transaksi;
+use Illuminate\Support\Carbon;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 
@@ -42,10 +44,13 @@ class AdminStatsOverview extends StatsOverviewWidget
             ->count();
 
         // ==============================
-        // TOTAL KESELURUHAN
-        // Sementara angka contoh
+        // TOTAL KESELURUHAN HARI INI
+        // Semua dermaga dan semua shift
         // ==============================
-        $totalKeseluruhan = 0;
+        $totalKeseluruhan = Transaksi::query()
+        ->whereDate('tanggal_transaksi', Carbon::today())
+        ->where('status', 'berhasil')
+        ->sum('total');
 
         return [
 

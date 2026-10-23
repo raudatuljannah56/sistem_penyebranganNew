@@ -2,11 +2,14 @@
 
 namespace App\Filament\Pages;
 
+use App\Models\Dermaga;
 use App\Models\NomorDokumenLaporan;
-use App\Models\Tarif;
 use App\Models\Transaksi;
 use Carbon\Carbon;
 use Filament\Pages\Page;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Livewire\WithPagination;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -15,21 +18,29 @@ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use UnitEnum;
 
-class PenjualanPerItem extends Page
+class DetailTransaksi extends Page
 {
-    protected static ?string $title = 'Penjualan by Menu';
+    use WithPagination;
 
-    protected static ?string $navigationLabel = 'Penjualan by Item';
+    protected static ?string $title = 'Laporan Detail Transaksi';
+
+    protected static ?string $navigationLabel = 'Detail Transaksi';
 
     protected static string|UnitEnum|null $navigationGroup = 'Laporan';
 
     protected static ?int $navigationSort = 4;
 
-    protected string $view = 'filament.pages.penjualan-per-item';
+    protected string $view = 'filament.pages.detail-transaksi';
 
     public string $tanggalAwal = '';
 
     public string $tanggalAkhir = '';
+
+    public string $lokasi = '';
+
+    public string $search = '';
+
+    public int $perPage = 25;
 
     public function mount(): void
     {
@@ -39,78 +50,210 @@ class PenjualanPerItem extends Page
         $this->tanggalAkhir = $hariIni;
     }
 
-    public function tampilkanData(): void
+    public function updatedSearch(): void
     {
-        // Filter langsung membaca nilai tanggal terbaru.
+        $this->resetPage();
     }
 
-    public function getLaporanProperty()
+    public function tampilkanData(): void
     {
-        return Tarif::query()
-            /*
-            |--------------------------------------------------------------------------
-            | Urutkan berdasarkan nama tarif secara alfabetis
-            |--------------------------------------------------------------------------
-            */
-            ->orderBy('nama_tarif', 'asc')
-            ->get()
-            ->map(function (Tarif $tarif) {
-                $query = Transaksi::query()
-                    ->where(
-                        'id_tarif',
-                        $tarif->id_tarif
-                    )
-                    ->where(
-                        'status',
-                        'berhasil'
-                    );
+        $this->resetPage();
+    }
 
-                if ($this->tanggalAwal) {
+    protected function baseQuery(): Builder
+    {
+        return Transaksi::query()
+            ->with([
+                'shift.user',
+                'shift.loket.dermaga',
+                'tarif',
+            ])
+            ->when(
+                $this->tanggalAwal,
+                fn (Builder $query) =>
                     $query->whereDate(
                         'tanggal_transaksi',
                         '>=',
                         $this->tanggalAwal
-                    );
-                }
-
-                if ($this->tanggalAkhir) {
+                    )
+            )
+            ->when(
+                $this->tanggalAkhir,
+                fn (Builder $query) =>
                     $query->whereDate(
                         'tanggal_transaksi',
                         '<=',
                         $this->tanggalAkhir
+                    )
+            )
+            ->when(
+                $this->lokasi,
+                fn (Builder $query) =>
+                    $query->whereHas(
+                        'shift.loket.dermaga',
+                        fn (Builder $query) =>
+                            $query->where(
+                                'id_dermaga',
+                                $this->lokasi
+                            )
+                    )
+            )
+            ->when(
+                $this->search,
+                function (Builder $query) {
+
+                    $search = trim(
+                        $this->search
                     );
+
+                    $query->where(function (Builder $query) use ($search) {
+
+                        $query
+                            ->where(
+                                'kode_transaksi',
+                                'like',
+                                "%{$search}%"
+                            )
+                            ->orWhereHas(
+                                'shift.user',
+                                fn (Builder $query) =>
+                                    $query->where(
+                                        'nama',
+                                        'like',
+                                        "%{$search}%"
+                                    )
+                            )
+                            ->orWhereHas(
+                                'shift.loket.dermaga',
+                                fn (Builder $query) =>
+                                    $query->where(
+                                        'nama_dermaga',
+                                        'like',
+                                        "%{$search}%"
+                                    )
+                            )
+                            ->orWhereHas(
+                                'tarif',
+                                fn (Builder $query) =>
+                                    $query->where(
+                                        'nama_tarif',
+                                        'like',
+                                        "%{$search}%"
+                                    )
+                            );
+
+                    });
                 }
-
-                return [
-                    'id_tarif' => $tarif->id_tarif,
-                    'nama_tarif' => $tarif->nama_tarif,
-                    'kategori' => $tarif->kategori,
-                    'harga' => (float) $tarif->harga,
-                    'qty' => (int) $query->sum('jumlah'),
-                    'total' => (float) $query->sum('total'),
-                ];
-            });
+            )
+            ->orderBy(
+                'tanggal_transaksi',
+                'desc'
+            );
     }
 
-    public function getTotalQtyProperty(): int
+    public function getTransaksisProperty(): LengthAwarePaginator
     {
-        return (int) $this->laporan->sum('qty');
+        return $this->baseQuery()->paginate(
+            $this->perPage,
+            ['*'],
+            'detailPage'
+        );
     }
 
-    public function getTotalKeseluruhanProperty(): float
+    public function getLokasiOptionsProperty(): array
     {
-        return (float) $this->laporan->sum('total');
+        return Dermaga::query()
+            ->orderBy('nama_dermaga')
+            ->pluck(
+                'nama_dermaga',
+                'id_dermaga'
+            )
+            ->toArray();
+    }
+
+    public function getNamaLokasiProperty(): string
+    {
+        if (!$this->lokasi) {
+            return 'Semua Lokasi';
+        }
+
+        return Dermaga::where(
+            'id_dermaga',
+            $this->lokasi
+        )->value(
+            'nama_dermaga'
+        ) ?? 'Semua Lokasi';
+    }
+
+    public function getTotalQtyProperty(): int|float
+    {
+        return (clone $this->baseQuery())
+            ->sum('jumlah');
+    }
+
+    public function getTotalPendapatanProperty(): float
+    {
+        return (float) (
+            clone $this->baseQuery()
+        )->sum('total');
+    }
+
+    public function getRingkasanLokasiProperty(): array
+    {
+        $data = (clone $this->baseQuery())
+            ->get();
+
+        return $data
+            ->groupBy(
+                fn ($transaksi) =>
+                    $transaksi
+                        ->shift
+                        ?->loket
+                        ?->dermaga
+                        ?->id_dermaga
+                    ?? 0
+            )
+            ->map(
+                fn ($transaksiLokasi) => [
+                    'qty' =>
+                        $transaksiLokasi->sum(
+                            fn ($transaksi) =>
+                                (int) $transaksi->jumlah
+                        ),
+
+                    'pendapatan' =>
+                        (float) $transaksiLokasi->sum(
+                            fn ($transaksi) =>
+                                (float) $transaksi->total
+                        ),
+                ]
+            )
+            ->toArray();
+    }
+
+    public function getTotalQtyKeseluruhanProperty(): int|float
+    {
+        return (clone $this->baseQuery())
+            ->sum('jumlah');
+    }
+
+    public function getTotalPendapatanKeseluruhanProperty(): float
+    {
+        return (float) (
+            clone $this->baseQuery()
+        )->sum('total');
     }
 
     public function exportExcel(): StreamedResponse
     {
         /*
         |--------------------------------------------------------------------------
-        | Ambil data laporan sesuai periode
+        | Ambil data sesuai filter
         |--------------------------------------------------------------------------
         */
 
-        $laporan = $this->laporan;
+        $data = (clone $this->baseQuery())
+            ->get();
 
         /*
         |--------------------------------------------------------------------------
@@ -123,7 +266,7 @@ class PenjualanPerItem extends Page
         $sheet = $spreadsheet->getActiveSheet();
 
         $sheet->setTitle(
-            'Penjualan by Menu'
+            'Detail Transaksi'
         );
 
         /*
@@ -146,19 +289,27 @@ class PenjualanPerItem extends Page
 
         $sheet
             ->getColumnDimension('B')
-            ->setWidth(32);
+            ->setWidth(30);
 
         $sheet
             ->getColumnDimension('C')
-            ->setWidth(15);
+            ->setWidth(32);
 
         $sheet
             ->getColumnDimension('D')
-            ->setWidth(10);
+            ->setWidth(28);
 
         $sheet
             ->getColumnDimension('E')
-            ->setWidth(16);
+            ->setWidth(22);
+
+        $sheet
+            ->getColumnDimension('F')
+            ->setWidth(30);
+
+        $sheet
+            ->getColumnDimension('G')
+            ->setWidth(20);
 
         /*
         |--------------------------------------------------------------------------
@@ -167,24 +318,24 @@ class PenjualanPerItem extends Page
         */
 
         $sheet
-            ->getStyle('A1:E200')
+            ->getStyle('A1:G300')
             ->getFont()
             ->setName('Arial')
             ->setSize(10);
 
         /*
         |--------------------------------------------------------------------------
-        | JUDUL
+        | JUDUL UTAMA
         |--------------------------------------------------------------------------
         */
 
         $sheet->mergeCells(
-            'A1:E1'
+            'A1:G1'
         );
 
         $sheet->setCellValue(
             'A1',
-            'Laporan Penjualan by Menu'
+            'Laporan Detail Transaksi'
         );
 
         $sheet
@@ -227,17 +378,17 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | SUBJUDUL
+        | DETAIL TRANSAKSI
         |--------------------------------------------------------------------------
         */
 
         $sheet->mergeCells(
-            'A4:E4'
+            'A4:G4'
         );
 
         $sheet->setCellValue(
             'A4',
-            'Penjualan by Menu'
+            'Detail Transaksi'
         );
 
         $sheet
@@ -265,32 +416,17 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | PERIODE TANGGAL
+        | LOKASI
         |--------------------------------------------------------------------------
         */
 
-        $tanggalAwal = $this->tanggalAwal !== ''
-            ? Carbon::parse(
-                $this->tanggalAwal
-            )->format('d-m-Y')
-            : '-';
-
-        $tanggalAkhir = $this->tanggalAkhir !== ''
-            ? Carbon::parse(
-                $this->tanggalAkhir
-            )->format('d-m-Y')
-            : '-';
-
         $sheet->mergeCells(
-            'A5:E5'
+            'A5:G5'
         );
 
         $sheet->setCellValue(
             'A5',
-            'Periode Tanggal : '
-            . $tanggalAwal
-            . ' — '
-            . $tanggalAkhir
+            'Lokasi : ' . $this->namaLokasi
         );
 
         $sheet
@@ -318,12 +454,65 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
+        | PERIODE TANGGAL
+        |--------------------------------------------------------------------------
+        */
+
+        $tanggalAwal = $this->tanggalAwal !== ''
+            ? Carbon::parse(
+                $this->tanggalAwal
+            )->format('d-m-Y')
+            : '-';
+
+        $tanggalAkhir = $this->tanggalAkhir !== ''
+            ? Carbon::parse(
+                $this->tanggalAkhir
+            )->format('d-m-Y')
+            : '-';
+
+        $sheet->mergeCells(
+            'A6:G6'
+        );
+
+        $sheet->setCellValue(
+            'A6',
+            'Periode Tanggal : '
+            . $tanggalAwal
+            . ' — '
+            . $tanggalAkhir
+        );
+
+        $sheet
+            ->getStyle('A6')
+            ->getFont()
+            ->setSize(10)
+            ->getColor()
+            ->setARGB(
+                'FF000000'
+            );
+
+        $sheet
+            ->getStyle('A6')
+            ->getAlignment()
+            ->setHorizontal(
+                Alignment::HORIZONTAL_LEFT
+            )
+            ->setVertical(
+                Alignment::VERTICAL_CENTER
+            );
+
+        $sheet
+            ->getRowDimension(6)
+            ->setRowHeight(20);
+
+        /*
+        |--------------------------------------------------------------------------
         | JARAK SEBELUM TABEL
         |--------------------------------------------------------------------------
         */
 
         $sheet
-            ->getRowDimension(6)
+            ->getRowDimension(7)
             ->setRowHeight(8);
 
         /*
@@ -332,7 +521,7 @@ class PenjualanPerItem extends Page
         |--------------------------------------------------------------------------
         */
 
-        $headerRow = 7;
+        $headerRow = 8;
 
         $sheet->setCellValue(
             "A{$headerRow}",
@@ -341,26 +530,36 @@ class PenjualanPerItem extends Page
 
         $sheet->setCellValue(
             "B{$headerRow}",
-            'Nama Item'
+            'Lokasi'
         );
 
         $sheet->setCellValue(
             "C{$headerRow}",
-            'Harga Item'
+            'Petugas'
         );
 
         $sheet->setCellValue(
             "D{$headerRow}",
-            'Qty'
+            'Kode TRX'
         );
 
         $sheet->setCellValue(
             "E{$headerRow}",
-            'TOTAL'
+            'Tanggal'
+        );
+
+        $sheet->setCellValue(
+            "F{$headerRow}",
+            'Item'
+        );
+
+        $sheet->setCellValue(
+            "G{$headerRow}",
+            'Pendapatan'
         );
 
         $headerStyle = $sheet->getStyle(
-            "A{$headerRow}:E{$headerRow}"
+            "A{$headerRow}:G{$headerRow}"
         );
 
         /*
@@ -384,7 +583,7 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | Tulisan HEADER HITAM
+        | Font HEADER
         |--------------------------------------------------------------------------
         */
 
@@ -413,7 +612,7 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | BORDER HEADER
+        | Border HEADER
         |--------------------------------------------------------------------------
         */
 
@@ -469,13 +668,13 @@ class PenjualanPerItem extends Page
         |--------------------------------------------------------------------------
         */
 
-        $row = 8;
+        $row = 9;
 
         $totalQty = 0;
 
-        $totalKeseluruhan = 0;
+        $totalPendapatan = 0;
 
-        foreach ($laporan as $index => $item) {
+        foreach ($data as $index => $transaksi) {
 
             /*
             |--------------------------------------------------------------------------
@@ -490,32 +689,52 @@ class PenjualanPerItem extends Page
 
             $sheet->setCellValue(
                 "B{$row}",
-                $item['nama_tarif']
+                $transaksi->shift?->loket?->dermaga?->nama_dermaga
+                    ?? '-'
             );
 
             $sheet->setCellValue(
                 "C{$row}",
-                (float) $item['harga']
+                $transaksi->shift?->user?->nama
+                    ?? '-'
             );
 
             $sheet->setCellValue(
                 "D{$row}",
-                (int) $item['qty']
+                $transaksi->kode_transaksi
+                    ?? '-'
             );
+
+            $tanggalTransaksi = $transaksi->tanggal_transaksi
+                ? Carbon::parse(
+                    $transaksi->tanggal_transaksi
+                )->format('d/m/Y H:i:s')
+                : '-';
 
             $sheet->setCellValue(
                 "E{$row}",
-                (float) $item['total']
+                $tanggalTransaksi
+            );
+
+            $sheet->setCellValue(
+                "F{$row}",
+                $transaksi->tarif?->nama_tarif
+                    ?? '-'
+            );
+
+            $sheet->setCellValue(
+                "G{$row}",
+                (float) $transaksi->total
             );
 
             /*
             |--------------------------------------------------------------------------
-            | BORDER SETIAP SEL
+            | Border DATA
             |--------------------------------------------------------------------------
             */
 
             $dataStyle = $sheet->getStyle(
-                "A{$row}:E{$row}"
+                "A{$row}:G{$row}"
             );
 
             $dataStyle
@@ -562,7 +781,7 @@ class PenjualanPerItem extends Page
 
             /*
             |--------------------------------------------------------------------------
-            | ALIGNMENT
+            | Alignment
             |--------------------------------------------------------------------------
             */
 
@@ -590,7 +809,7 @@ class PenjualanPerItem extends Page
                 ->getStyle("C{$row}")
                 ->getAlignment()
                 ->setHorizontal(
-                    Alignment::HORIZONTAL_RIGHT
+                    Alignment::HORIZONTAL_LEFT
                 )
                 ->setVertical(
                     Alignment::VERTICAL_CENTER
@@ -600,7 +819,7 @@ class PenjualanPerItem extends Page
                 ->getStyle("D{$row}")
                 ->getAlignment()
                 ->setHorizontal(
-                    Alignment::HORIZONTAL_CENTER
+                    Alignment::HORIZONTAL_LEFT
                 )
                 ->setVertical(
                     Alignment::VERTICAL_CENTER
@@ -608,6 +827,26 @@ class PenjualanPerItem extends Page
 
             $sheet
                 ->getStyle("E{$row}")
+                ->getAlignment()
+                ->setHorizontal(
+                    Alignment::HORIZONTAL_CENTER
+                )
+                ->setVertical(
+                    Alignment::VERTICAL_CENTER
+                );
+
+            $sheet
+                ->getStyle("F{$row}")
+                ->getAlignment()
+                ->setHorizontal(
+                    Alignment::HORIZONTAL_LEFT
+                )
+                ->setVertical(
+                    Alignment::VERTICAL_CENTER
+                );
+
+            $sheet
+                ->getStyle("G{$row}")
                 ->getAlignment()
                 ->setHorizontal(
                     Alignment::HORIZONTAL_RIGHT
@@ -618,26 +857,12 @@ class PenjualanPerItem extends Page
 
             /*
             |--------------------------------------------------------------------------
-            | FORMAT ANGKA
+            | Format Pendapatan
             |--------------------------------------------------------------------------
             */
 
             $sheet
-                ->getStyle("C{$row}")
-                ->getNumberFormat()
-                ->setFormatCode(
-                    '#,##0'
-                );
-
-            $sheet
-                ->getStyle("D{$row}")
-                ->getNumberFormat()
-                ->setFormatCode(
-                    '#,##0'
-                );
-
-            $sheet
-                ->getStyle("E{$row}")
+                ->getStyle("G{$row}")
                 ->getNumberFormat()
                 ->setFormatCode(
                     '#,##0'
@@ -649,42 +874,38 @@ class PenjualanPerItem extends Page
 
             /*
             |--------------------------------------------------------------------------
-            | Total
+            | Hitung Total
             |--------------------------------------------------------------------------
             */
 
-            $totalQty += (int) $item['qty'];
+            $totalQty +=
+                (int) $transaksi->jumlah;
 
-            $totalKeseluruhan +=
-                (float) $item['total'];
+            $totalPendapatan +=
+                (float) $transaksi->total;
 
             $row++;
         }
 
         /*
         |--------------------------------------------------------------------------
-        | JIKA DATA KOSONG
+        | DATA KOSONG
         |--------------------------------------------------------------------------
         */
 
-        if ($laporan->isEmpty()) {
+        if ($data->isEmpty()) {
+
+            $sheet->mergeCells(
+                "A{$row}:G{$row}"
+            );
 
             $sheet->setCellValue(
                 "A{$row}",
-                '-'
-            );
-
-            $sheet->mergeCells(
-                "B{$row}:E{$row}"
-            );
-
-            $sheet->setCellValue(
-                "B{$row}",
-                'Tidak ada data penjualan.'
+                'Tidak ada data transaksi.'
             );
 
             $emptyStyle = $sheet->getStyle(
-                "A{$row}:E{$row}"
+                "A{$row}:G{$row}"
             );
 
             $emptyStyle
@@ -694,6 +915,13 @@ class PenjualanPerItem extends Page
                 )
                 ->setVertical(
                     Alignment::VERTICAL_CENTER
+                );
+
+            $emptyStyle
+                ->getFont()
+                ->getColor()
+                ->setARGB(
+                    'FF6B7280'
                 );
 
             $emptyStyle
@@ -738,6 +966,10 @@ class PenjualanPerItem extends Page
                     Border::BORDER_THIN
                 );
 
+            $sheet
+                ->getRowDimension($row)
+                ->setRowHeight(25);
+
             $row++;
         }
 
@@ -749,14 +981,8 @@ class PenjualanPerItem extends Page
 
         $totalRow = $row;
 
-        /*
-        |--------------------------------------------------------------------------
-        | A sampai C digabung
-        |--------------------------------------------------------------------------
-        */
-
         $sheet->mergeCells(
-            "A{$totalRow}:C{$totalRow}"
+            "A{$totalRow}:F{$totalRow}"
         );
 
         $sheet->setCellValue(
@@ -765,17 +991,12 @@ class PenjualanPerItem extends Page
         );
 
         $sheet->setCellValue(
-            "D{$totalRow}",
-            $totalQty
-        );
-
-        $sheet->setCellValue(
-            "E{$totalRow}",
-            $totalKeseluruhan
+            "G{$totalRow}",
+            $totalPendapatan
         );
 
         $totalStyle = $sheet->getStyle(
-            "A{$totalRow}:E{$totalRow}"
+            "A{$totalRow}:G{$totalRow}"
         );
 
         /*
@@ -813,7 +1034,7 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | BORDER TOTAL
+        | Border TOTAL
         |--------------------------------------------------------------------------
         */
 
@@ -876,17 +1097,7 @@ class PenjualanPerItem extends Page
             );
 
         $sheet
-            ->getStyle("D{$totalRow}")
-            ->getAlignment()
-            ->setHorizontal(
-                Alignment::HORIZONTAL_CENTER
-            )
-            ->setVertical(
-                Alignment::VERTICAL_CENTER
-            );
-
-        $sheet
-            ->getStyle("E{$totalRow}")
+            ->getStyle("G{$totalRow}")
             ->getAlignment()
             ->setHorizontal(
                 Alignment::HORIZONTAL_RIGHT
@@ -895,15 +1106,14 @@ class PenjualanPerItem extends Page
                 Alignment::VERTICAL_CENTER
             );
 
-        $sheet
-            ->getStyle("D{$totalRow}")
-            ->getNumberFormat()
-            ->setFormatCode(
-                '#,##0'
-            );
+        /*
+        |--------------------------------------------------------------------------
+        | Format Total
+        |--------------------------------------------------------------------------
+        */
 
         $sheet
-            ->getStyle("E{$totalRow}")
+            ->getStyle("G{$totalRow}")
             ->getNumberFormat()
             ->setFormatCode(
                 '#,##0'
@@ -918,7 +1128,7 @@ class PenjualanPerItem extends Page
         | NOMOR DOKUMEN OTOMATIS
         |--------------------------------------------------------------------------
         |
-        | Menggunakan tanggal saat tombol Export ditekan,
+        | Nomor dokumen menggunakan tanggal saat Export ditekan,
         | bukan tanggal periode laporan.
         |--------------------------------------------------------------------------
         */
@@ -939,7 +1149,7 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | Nomor dokumen
+        | Nomor Dokumen
         |--------------------------------------------------------------------------
         */
 
@@ -965,12 +1175,12 @@ class PenjualanPerItem extends Page
         */
 
         $sheet->setCellValue(
-            "E{$documentRow}",
+            "G{$documentRow}",
             'Admin'
         );
 
         $sheet
-            ->getStyle("E{$documentRow}")
+            ->getStyle("G{$documentRow}")
             ->getAlignment()
             ->setHorizontal(
                 Alignment::HORIZONTAL_RIGHT
@@ -999,12 +1209,12 @@ class PenjualanPerItem extends Page
 
         /*
         |--------------------------------------------------------------------------
-        | Nama file
+        | Nama File
         |--------------------------------------------------------------------------
         */
 
         $filename =
-            'Laporan-Penjualan-by-Menu-'
+            'Laporan-Detail-Transaksi-'
             . (
                 $this->tanggalAwal !== ''
                     ? Carbon::parse(
